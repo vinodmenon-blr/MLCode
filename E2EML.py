@@ -87,6 +87,10 @@ if __name__ == '__main__':
     corr_matrix = housing_df.corr(numeric_only=True)
     print(corr_matrix["median_income"])
 
+    #drop unnecessary colums
+    housing_df = s_train_set.drop("median_house_value", axis=1)
+
+
 
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
