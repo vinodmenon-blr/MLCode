@@ -135,6 +135,12 @@ if __name__ == '__main__':
 
     #just pass the first sample and check the prediction. Here we are passing the third image from training
     #set which is 4 and it classified properly
+    """
+        SGDClassifier(loss="log_loss") - Stochastic Gradient Descent (SGD): updates weights one sample (or batch) at a time.
+        LogisticRegression - Batch Solvers (lbfgs, saga, liblinear): use entire dataset to compute gradients and 
+        Hessian/curvature estimates.
+        Both optimises the cross entropy function
+    """
     res = sgd_c.predict([x_train[2]])
     print(res)
 
