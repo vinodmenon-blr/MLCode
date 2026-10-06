@@ -46,6 +46,21 @@ if __name__ == '__main__':
     y = iris["target"]
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
 
+    """
+    Algorithm Family               Most Compute-Efficient Approach                    Why?
+    Linear Models / 
+    SGD (SGDClassifier, linear loss)      OvR or Softmax                         Training scales linearly 
+                                                                                $\mathcal{O}(m)$; OvR only needs $K$ models, 
+                                                                                avoiding the overhead of 45 models.
+    Kernel / Quadratic Models 
+    (SVC with RBF/poly kernel)         OvO (by a massive margin!)               SVM scales super-linearly 
+                                                                              $\mathcal{O}(m^2)$ to $\mathcal{O}(m^3)$. 
+                                                                              Training on small pairwise subsets is vastly faster.
+   At Inference / Prediction Time         Softmax                             Only 1 matrix multiplication across 
+                                                                              $K$ classes; OvO is slowest 
+                                                                              ($45$ evaluations).
+    """
+
     softmax_reg = LogisticRegression(C=30, random_state=42)
     softmax_reg.fit(X_train, y_train)
 
