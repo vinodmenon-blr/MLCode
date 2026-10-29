@@ -35,8 +35,7 @@ def get_mnist_data():
     #create batch data loaders for mini batch processing
     train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
     valid_loader = DataLoader(valid_data, batch_size=32)
-    #batch size should be 32. Have reduced since using for prediction sample code later on
-    test_loader = DataLoader(test_data, batch_size=1)
+    test_loader = DataLoader(test_data, batch_size=32)
 
     return train_loader, valid_loader, test_loader
 
@@ -137,5 +136,5 @@ if __name__ == '__main__':
     # to GPU
     accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(d)
     #train the model and check the accuracy of training set and validation set in each epoch
-    _ = train_model(model, optimizer, xentropy, accuracy, tr_loader, val_loader, 10, d)
+    _ = train_model(model, optimizer, xentropy, accuracy, tr_loader, val_loader, 3, d)
     get_class_prob(model, te_loader, d)
