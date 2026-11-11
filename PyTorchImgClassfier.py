@@ -135,7 +135,6 @@ def objective_func(trial, tr_loader, val_loader):
     n_hidden = trial.suggest_int("n_hidden", 20, 300)
     best_validation_accuracy = 0.0
     model = ImageClassifier(n_inputs=1*28*28, n_hidden1=n_hidden, n_hidden2=n_hidden, n_classes=10).to(device)
-    trained_model = model
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
     xentropy = nn.CrossEntropyLoss()
     accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(device)
