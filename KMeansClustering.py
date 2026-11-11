@@ -1,6 +1,11 @@
 import numpy as np
+from matplotlib import pyplot as plt
 from sklearn.cluster import KMeans
 from sklearn.datasets import make_blobs
+from sklearn.metrics import silhouette_score
+from pathlib import Path
+import PIL
+from PIL import Image
 
 def gen_data_with_clusters():
     blob_centers = np.array([[0.2, 2.3], [-1.5, 2.3], [-2.8, 1.8],
@@ -137,6 +142,59 @@ def compare_kmeans_kmeans_plus(X):
     print("score for kmeans with random init ", kmeans.score(X))
     print("score for kmeans with k-means++", kmeans_plus.score(X))
 
+def silhouette_score_compare(X):
+
+    #compute silhouette scores for multiple number of clusters and check
+    # what is the optimal value
+    # Do clustering for different values of k
+    kmeans_per_k = [KMeans(n_clusters=k, random_state=43).fit(X)
+                    for k in range(1, 10)]
+
+    silhouette_scores = [silhouette_score(X, model.labels_)
+                         for model in kmeans_per_k[1:]]
+
+    #check out the scores in this plot. You can see k=4 and k=5 looks good
+    plt.figure(figsize=(8, 3))
+    plt.plot(range(2, 10), silhouette_scores, "bo-")
+    plt.xlabel("$k$")
+    plt.ylabel("Silhouette score")
+    plt.axis([1.8, 8.5, 0.55, 0.7])
+    plt.grid()
+    plt.show()
+
+def img_seg_using_clusters():
+    filename = "ladybug.png"
+    filepath = Path(f"./datasets/{filename}")
+    image = np.asarray(Image.open(filepath))
+    #reshape the input where H,W are multiplied into one number
+    #uniquely identifying each pixel and then RGB for that pixel
+    X = image.reshape(-1, 3)
+
+    #Do image segmentation considering 10,8,6,4,2 colours
+    #Here we are taking cluster centroids and considering distances
+    #RGB values of pixels
+    segmented_imgs = []
+    n_colors = (10, 8, 6, 4, 2)
+    for n_clusters in n_colors:
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(X)
+        segmented_img = kmeans.cluster_centers_[kmeans.labels_]
+        segmented_imgs.append(segmented_img.reshape(image.shape))
+
+    plt.figure(figsize=(10, 5))
+    plt.subplots_adjust(wspace=0.05, hspace=0.1)
+
+    plt.subplot(2, 3, 1)
+    plt.imshow(image)
+    plt.title("Original image")
+    plt.axis('off')
+    #plotting the image with each of the cluster values
+    for idx, n_clusters in enumerate(n_colors):
+        plt.subplot(2, 3, 2 + idx)
+        plt.imshow(segmented_imgs[idx] / 255)
+        plt.title(f"{n_clusters} colors")
+        plt.axis('off')
+
+    plt.show()
 
 """
 KMeans Clustering - Elkans ALgo
@@ -163,3 +221,5 @@ if __name__ == '__main__':
    X,y = gen_data_with_clusters()
    kmeans_cluster_init_dependency(X)
    compare_kmeans_kmeans_plus(X)
+   silhouette_score_compare(X)
+   img_seg_using_clusters()
