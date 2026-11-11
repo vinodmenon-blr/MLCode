@@ -1,3 +1,4 @@
+import optuna
 import torchmetrics
 import torchvision
 import torchvision.transforms.v2 as T
@@ -5,6 +6,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn.functional as F
+import optuna
+import os
+import copy
+
+best_trained_model = None
+global_best_accuracy = 0.0
 
 def check_which_gpu():
     if torch.cuda.is_available():
@@ -98,7 +105,7 @@ def train_model(model, optimizer, criterion, metric,
         history["valid_metrics"].append(
             #evaluate using validation set
             evaluate_tm(model, valid_loader, metric, device).item())
-        print(f"Epoch {epoch + 1}/{n_epochs}, "
+        print(
               f"train loss: {history['train_losses'][-1]:.4f}, "
               f"train metric: {history['train_metrics'][-1]:.4f}, "
               f"valid metric: {history['valid_metrics'][-1]:.4f}")
@@ -119,22 +126,93 @@ def get_class_prob(model, te_loader,device):
     y_proba = F.softmax(pred, dim=1)
     print(y_proba)
 
+def objective_func(trial, tr_loader, val_loader):
+    #optima provides the learning rate and number of hidden units
+    #log=True means learning rate is considered in log scale distribution to sample
+    global best_trained_model, global_best_accuracy
+    device = check_which_gpu()
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
+    n_hidden = trial.suggest_int("n_hidden", 20, 300)
+    best_validation_accuracy = 0.0
+    model = ImageClassifier(n_inputs=1*28*28, n_hidden1=n_hidden, n_hidden2=n_hidden, n_classes=10).to(device)
+    trained_model = model
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    xentropy = nn.CrossEntropyLoss()
+    accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(device)
+    n_epochs = 5
+    for epoch in range(5):
+        history = train_model(model, optimizer, xentropy, accuracy, tr_loader, val_loader,1, device)
+        validation_accuracy = max(history["valid_metrics"])
+        if validation_accuracy > best_validation_accuracy:
+            best_validation_accuracy = validation_accuracy
+        if validation_accuracy > global_best_accuracy:
+            global_best_accuracy = validation_accuracy
+            #This is the best model so far so doing a deep copy to keep
+            #model for compile and save
+            best_trained_model = copy.deepcopy(model)
+        #pass on the accuracy of the epoch
+        trial.report(validation_accuracy, epoch)
+        #check with median pruner on whether the trial has to be pruned
+        if trial.should_prune():
+            print("Trial Pruned: Trial number " + str(trial.number))
+            raise optuna.TrialPruned()
+
+        print(f"Epoch {epoch + 1}/{n_epochs} ")
+
+    return best_validation_accuracy
+
+
+def compile_and_save_model(model, device, save_path="./trained_model.pt2"):
+    model.eval()
+    batch_dim = torch.export.Dim("batch", min=1, max=1024)
+    example_input = (torch.randn(2, 1, 28, 28, device=device),)
+
+    export_pgm = torch.export.export(
+        model,
+        example_input,
+        dynamic_shapes=({0: batch_dim},)
+    )
+    torch.export.save(export_pgm, save_path)
+    print(f"Model successfully exported to {save_path}")
+
+def load_and_run_model(save_path="./trained_model.pt2", te_loader=None, device="cpu"):
+    loaded_pgm = torch.export.load(save_path)
+    loaded_model = loaded_pgm.module() #Is is in evaluation model which can be used for inference
+
+    X_test, y_test = next(iter(te_loader))
+    X_sample = X_test[:3].to(device)
+
+    #inference from loaded model
+    with torch.no_grad():
+        logits = loaded_model(X_sample)
+        probabilities = F.softmax(logits, dim=1)
+        preds = torch.argmax(probabilities, dim=1)
+
+    print("Loaded model output probabilities:\n", probabilities)
+    print("Predicted classes:", preds.cpu().numpy())
+    print("True classes:     ", y_test[:3].numpy())
+
 
 if __name__ == '__main__':
     d = check_which_gpu()
     tr_loader, val_loader, te_loader = get_mnist_data()
     torch.manual_seed(42)
-    #first hidden layer will have 300 units and second hidden layer will have 100 unites and output will have
-    #10 classes. Create the model using the custom module defined
-    model = ImageClassifier(n_inputs=1 * 28 * 28, n_hidden1=300, n_hidden2=100,
-                            n_classes=10).to(d)
-    #loss function will be cross entropy because it is a classification problem
-    xentropy = nn.CrossEntropyLoss()
-    #using the stochastic gradient descent as the optimiser
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-    #since it is classification the metric to be considered is accuracy. Accuracy streaming metric has to be moved
-    # to GPU
-    accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(d)
-    #train the model and check the accuracy of training set and validation set in each epoch
-    _ = train_model(model, optimizer, xentropy, accuracy, tr_loader, val_loader, 3, d)
-    get_class_prob(model, te_loader, d)
+    #Sampler used for choosing the hyper parameters is Tree Structured Parzen Estimator.
+    #It starts with random sampling and progressively focuses on most promising spaces in the
+    #hyper parameter space leading to better sampling than random sampling
+    sampler = optuna.samplers.TPESampler()
+    #using lambda to pass the loaders to objective function
+    objective_func_with_params = lambda trial: objective_func(trial, tr_loader=tr_loader, val_loader=val_loader)
+    #Will use a pruner to interrupt training raising an exception to ignore the specific trial all together
+    #because the metrics do not look good. In the case of MediaPruner it will prune the trial if the performance is
+    #is lower than the median performance. This is checked in regular intervals.
+    pruner = optuna.pruners.MedianPruner()
+    #Will do 5 trials with different values of hyper params sampled by TPE
+    #create study with sampler and pruner
+    study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)
+    study.optimize(objective_func_with_params, n_trials=5)
+    #What is the best params out of the 5 trials done?
+    print(study.best_params)
+
+    compile_and_save_model(best_trained_model, d, "./trained_model.pt2")
+    load_and_run_model("./trained_model.pt2", te_loader, d)
